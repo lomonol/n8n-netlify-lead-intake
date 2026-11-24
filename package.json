@@ -1,0 +1,6 @@
+{
+  "name": "n8n-netlify-lead-intake",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test tests/*.test.mjs" }
+}

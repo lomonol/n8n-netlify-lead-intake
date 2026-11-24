@@ -1,0 +1,502 @@
+{
+  "name": "netlify-lead-intake",
+  "nodes": [
+    {
+      "id": "5cda6ca3-d4ab-4412-a256-2d8cca4dae23",
+      "name": "Quote Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "netlify-lead-intake",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Netlify Intake Token"
+        }
+      }
+    },
+    {
+      "id": "3914a9b3-8a9d-4cc4-9f84-1ed39b5457aa",
+      "name": "Check Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Second check after the serverless function: never trust the caller.\nconst b = $json.body || {};\nconst errors = [];\nconst s = (v, max) => String(v ?? '').trim().slice(0, max);\nconst lead = {\n  dedupe_key: s(b.dedupe_key, 160),\n  name: s(b.name, 80),\n  phone: s(b.phone, 20),\n  email: b.email ? s(b.email, 120).toLowerCase() : '',\n  zip: s(b.zip, 10),\n  service: s(b.service, 30),\n  preferred_time: s(b.preferred_time, 20) || 'any',\n  message: b.message ? s(b.message, 1000) : '',\n  source: s(b.source, 40) || 'unknown',\n  submitted_at: s(b.submitted_at, 40) || new Date().toISOString(),\n};\nif (lead.name.length < 2) errors.push('name');\nif (!/^\\+1[2-9]\\d{9}$/.test(lead.phone)) errors.push('phone');\nif (!/^\\d{5}(-\\d{4})?$/.test(lead.zip)) errors.push('zip');\nif (!['ac-repair','heating-repair','maintenance','new-install','other'].includes(lead.service)) errors.push('service');\nif (lead.dedupe_key !== lead.phone + '|' + (lead.email || '-')) errors.push('dedupe_key');\n// Labelled test data stays separable from real leads.\nlead.is_test = /^test lead/i.test(lead.name) || /@example\\.(com|org|net)$/.test(lead.email);\nreturn { json: { valid: errors.length === 0, errors, lead } };"
+      }
+    },
+    {
+      "id": "7fcfd9ca-dd66-48c8-bae4-1a35aec1b2d7",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        192
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "1319e873-53cf-40f1-8b96-81c540517832",
+      "name": "Find Existing Lead",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        96
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_LEADS_TABLE_ID",
+          "cachedResultName": "netlify_quote_leads"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dedupe_key",
+              "condition": "eq",
+              "keyValue": "={{ $json.lead.dedupe_key }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "723979d8-15a1-4b46-8d68-841743d4d46b",
+      "name": "Already Saved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "ea176c05-28c3-4f5d-b671-8903dde1b2f5",
+      "name": "Respond Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: \"duplicate\", lead_id: \"L-\" + $json.id }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "d5648d71-b2ee-4127-96c9-bae5970595e8",
+      "name": "Save Lead",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        192
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_LEADS_TABLE_ID",
+          "cachedResultName": "netlify_quote_leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "dedupe_key": "={{ $('Check Lead').item.json.lead.dedupe_key }}",
+            "name": "={{ $('Check Lead').item.json.lead.name }}",
+            "phone": "={{ $('Check Lead').item.json.lead.phone }}",
+            "email": "={{ $('Check Lead').item.json.lead.email }}",
+            "zip": "={{ $('Check Lead').item.json.lead.zip }}",
+            "service": "={{ $('Check Lead').item.json.lead.service }}",
+            "preferred_time": "={{ $('Check Lead').item.json.lead.preferred_time }}",
+            "message": "={{ $('Check Lead').item.json.lead.message }}",
+            "source": "={{ $('Check Lead').item.json.lead.source }}",
+            "submitted_at": "={{ $('Check Lead').item.json.lead.submitted_at }}",
+            "is_test": "={{ $('Check Lead').item.json.lead.is_test }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "dedupe_key",
+              "displayName": "dedupe_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "zip",
+              "displayName": "zip",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "service",
+              "displayName": "service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "preferred_time",
+              "displayName": "preferred_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "submitted_at",
+              "displayName": "submitted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "is_test",
+              "displayName": "is_test",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9655ad7a-9d48-4296-a2e6-3d35fe891565",
+      "name": "Respond Created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1344,
+        192
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: \"created\", lead_id: \"L-\" + $json.id }) }}",
+        "options": {
+          "responseCode": 201
+        }
+      }
+    },
+    {
+      "id": "fe4ed3a6-f0a0-4240-896a-86fd53a2e1f8",
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        288
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: \"invalid\", errors: $json.errors }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      }
+    },
+    {
+      "id": "1aba5f77-b65f-43fa-b886-a3690fafb039",
+      "name": "On Workflow Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        480
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "e646e819-b9bf-4b32-9744-aae2d6fe23c8",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        480
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_ERRORS_TABLE_ID",
+          "cachedResultName": "netlify_intake_errors"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "execution_id": "={{ String($json.execution?.id ?? '') }}",
+            "failed_node": "={{ $json.execution?.lastNodeExecuted ?? '' }}",
+            "error_message": "={{ ($json.execution?.error?.message ?? 'unknown').slice(0, 500) }}",
+            "failed_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "failed_node",
+              "displayName": "failed_node",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "failed_at",
+              "displayName": "failed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Quote Form Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Lead": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Find Existing Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Lead": {
+      "main": [
+        [
+          {
+            "node": "Already Saved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Saved?": {
+      "main": [
+        [
+          {
+            "node": "Respond Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Lead": {
+      "main": [
+        [
+          {
+            "node": "Respond Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On Workflow Error": {
+      "main": [
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false
+}

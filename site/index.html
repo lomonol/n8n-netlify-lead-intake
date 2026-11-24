@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request a Quote · Northside Heating &amp; Cooling (demo)</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#5b6475; --accent:#0b6bcb; --err:#b42318; --ok:#067647; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:560px; margin:0 auto; padding:32px 16px 48px; }
+  .note { font-size:13px; color:var(--muted); background:#eef2f7; border-radius:8px; padding:8px 12px; }
+  h1 { font-size:26px; margin:16px 0 4px; }
+  p.lead { color:var(--muted); margin:0 0 20px; }
+  form { background:var(--card); border-radius:12px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  label { display:block; font-weight:600; font-size:14px; margin:14px 0 4px; }
+  input, select, textarea { width:100%; padding:10px 12px; font:inherit; border:1px solid #cfd5df; border-radius:8px; }
+  textarea { min-height:90px; resize:vertical; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .err { color:var(--err); font-size:13px; min-height:1em; }
+  .hp { position:absolute; left:-9999px; }
+  button { margin-top:18px; width:100%; padding:12px; font:inherit; font-weight:600; color:#fff; background:var(--accent); border:0; border-radius:8px; cursor:pointer; }
+  button[disabled] { opacity:.6; cursor:wait; }
+  #result { margin-top:14px; font-weight:600; }
+  #result.ok { color:var(--ok); } #result.bad { color:var(--err); }
+  @media (max-width:480px) { .row { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="note">Portfolio demo for a fictional company. Use made-up details only.</div>
+  <h1>Request a quote</h1>
+  <p class="lead">Northside Heating &amp; Cooling. Tell us what you need and we will call you back.</p>
+
+  <form id="quote" novalidate>
+    <label for="name">Name</label>
+    <input id="name" name="name" autocomplete="name" required>
+    <div class="err" data-for="name"></div>
+
+    <div class="row">
+      <div>
+        <label for="phone">Phone</label>
+        <input id="phone" name="phone" type="tel" autocomplete="tel" required>
+        <div class="err" data-for="phone"></div>
+      </div>
+      <div>
+        <label for="zip">ZIP code</label>
+        <input id="zip" name="zip" inputmode="numeric" autocomplete="postal-code" required>
+        <div class="err" data-for="zip"></div>
+      </div>
+    </div>
+
+    <label for="email">Email (optional)</label>
+    <input id="email" name="email" type="email" autocomplete="email">
+    <div class="err" data-for="email"></div>
+
+    <div class="row">
+      <div>
+        <label for="service">Service</label>
+        <select id="service" name="service" required>
+          <option value="">Choose…</option>
+          <option value="ac-repair">AC repair</option>
+          <option value="heating-repair">Heating repair</option>
+          <option value="maintenance">Maintenance visit</option>
+          <option value="new-install">New system install</option>
+          <option value="other">Something else</option>
+        </select>
+        <div class="err" data-for="service"></div>
+      </div>
+      <div>
+        <label for="preferred_time">Best time to call</label>
+        <select id="preferred_time" name="preferred_time">
+          <option value="any">Any time</option>
+          <option value="morning">Morning</option>
+          <option value="afternoon">Afternoon</option>
+          <option value="evening">Evening</option>
+        </select>
+        <div class="err" data-for="preferred_time"></div>
+      </div>
+    </div>
+
+    <label for="message">What is going on? (optional)</label>
+    <textarea id="message" name="message" maxlength="1000"></textarea>
+
+    <div class="hp" aria-hidden="true">
+      <label for="company_website">Leave this empty</label>
+      <input id="company_website" name="company_website" tabindex="-1" autocomplete="off">
+    </div>
+
+    <button type="submit">Send request</button>
+    <div id="result" role="status" aria-live="polite"></div>
+  </form>
+</main>
+<script>
+  const form = document.getElementById('quote');
+  const out = document.getElementById('result');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    form.querySelectorAll('.err').forEach((el) => (el.textContent = ''));
+    out.textContent = ''; out.className = '';
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    try {
+      const body = Object.fromEntries(new FormData(form));
+      const res = await fetch('/api/quote', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        out.className = 'ok';
+        out.textContent = data.status === 'duplicate'
+          ? 'We already have your request. We will call you soon.'
+          : 'Thanks! We got your request and will call you soon.';
+        if (data.status !== 'duplicate') form.reset();
+      } else if (data.errors) {
+        for (const [field, msg] of Object.entries(data.errors)) {
+          const el = form.querySelector(`.err[data-for="${field}"]`);
+          if (el) el.textContent = msg;
+        }
+        out.className = 'bad'; out.textContent = 'Please fix the highlighted fields.';
+      } else {
+        out.className = 'bad'; out.textContent = data.error || 'Something went wrong. Please try again.';
+      }
+    } catch {
+      out.className = 'bad'; out.textContent = 'Network error. Please try again.';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
