@@ -1,4 +1,4 @@
-# Case Study: Website Quote Form to n8n Lead Intake
+# Website Quote Form to n8n Lead Intake
 
 **A website quote form posts to a serverless function that checks the request and forwards it to an n8n webhook with a secret header. n8n checks it again, skips repeat submissions, saves the lead and replies with a status the page shows to the visitor.**
 
